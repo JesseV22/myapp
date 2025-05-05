@@ -2,38 +2,84 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/ingrediente.dart';
 import '../models/prato.dart';
+import 'dart:convert';
 
 class BancoDados {
-  static Future<Database> _abrirBanco() async {
-    return openDatabase(
-      join(await getDatabasesPath(), 'prato_certo.db'),
-      onCreate: (db, version) async {
-        await db.execute(
-          'CREATE TABLE ingredientes(id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, quantidade INTEGER)',
-        );
-        await db.execute(
-          'CREATE TABLE pratos(id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, ingredientes TEXT)',
-        );
-      },
-      version: 1,
+  static final BancoDados instance = BancoDados._init();
+  static Database? _database;
+
+  BancoDados._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('prato_certo.db');
+    return _database!;
+  }
+
+  Future<Database> _initDB(String filePath) async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, filePath);
+
+    return await openDatabase(
+      path,
+      version: 2, // Incrementado para v2
+      onCreate: _createDB,
+      onUpgrade: _onUpgrade,
     );
   }
 
-  // Ingrediente CRUD
-  static Future<void> inserirIngrediente(Ingrediente ingrediente) async {
-    final db = await _abrirBanco();
+  Future _createDB(Database db, int version) async {
+    await db.execute('''
+    CREATE TABLE ingredientes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      quantidade INTEGER NOT NULL,
+      unidade TEXT NOT NULL
+    )
+    ''');
+    await db.execute('''
+    CREATE TABLE pratos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      ingredientes TEXT NOT NULL
+    )
+    ''');
+  }
+
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE ingredientes ADD COLUMN unidade TEXT NOT NULL DEFAULT "unidade"');
+    }
+  }
+
+  Future<void> inserirIngrediente(Ingrediente ingrediente) async {
+    final db = await database;
     await db.insert('ingredientes', ingrediente.toMap(),
         conflictAlgorithm: ConflictAlgorithm.replace);
+    print('Ingrediente salvo: ${ingrediente.nome}, ${ingrediente.quantidade} ${ingrediente.unidade}');
   }
 
-  static Future<List<Ingrediente>> listarIngredientes() async {
-    final db = await _abrirBanco();
-    final List<Map<String, dynamic>> maps = await db.query('ingredientes');
-    return List.generate(maps.length, (i) => Ingrediente.fromMap(maps[i]));
+  Future<void> inserirPrato(Prato prato) async {
+    final db = await database;
+    await db.insert('pratos', prato.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    print('Prato salvo: ${prato.nome}');
   }
 
-  static Future<void> atualizarIngrediente(Ingrediente ingrediente) async {
-    final db = await _abrirBanco();
+  Future<List<Ingrediente>> listarIngredientes() async {
+    final db = await database;
+    final result = await db.query('ingredientes');
+    return result.map((json) => Ingrediente.fromMap(json)).toList();
+  }
+
+  Future<List<Prato>> listarPratos() async {
+    final db = await database;
+    final result = await db.query('pratos');
+    return result.map((json) => Prato.fromMap(json)).toList();
+  }
+
+  Future<void> atualizarIngrediente(Ingrediente ingrediente) async {
+    final db = await database;
     await db.update(
       'ingredientes',
       ingrediente.toMap(),
@@ -42,36 +88,13 @@ class BancoDados {
     );
   }
 
-  static Future<void> excluirIngrediente(int id) async {
-    final db = await _abrirBanco();
+  Future<void> excluirIngrediente(int id) async {
+    final db = await database;
     await db.delete('ingredientes', where: 'id = ?', whereArgs: [id]);
   }
 
-  // Prato CRUD
-  static Future<void> inserirPrato(Prato prato) async {
-    final db = await _abrirBanco();
-    await db.insert('pratos', prato.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  static Future<List<Prato>> listarPratos() async {
-    final db = await _abrirBanco();
-    final List<Map<String, dynamic>> maps = await db.query('pratos');
-    return List.generate(maps.length, (i) => Prato.fromMap(maps[i]));
-  }
-
-  static Future<void> atualizarPrato(Prato prato) async {
-    final db = await _abrirBanco();
-    await db.update(
-      'pratos',
-      prato.toMap(),
-      where: 'id = ?',
-      whereArgs: [prato.id],
-    );
-  }
-
-  static Future<void> excluirPrato(int id) async {
-    final db = await _abrirBanco();
+  Future<void> excluirPrato(int id) async {
+    final db = await database;
     await db.delete('pratos', where: 'id = ?', whereArgs: [id]);
   }
 }
